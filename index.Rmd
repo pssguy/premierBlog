@@ -1,0 +1,271 @@
+---
+title: "Premier League Blog"
+author: "mytinyshinys"
+date: "March 7, 2016"
+output:
+  html_document:
+    fig_caption: yes
+    theme: journal
+    toc: true
+    toc_depth: 2
+    code_folding: hide
+css: customBlog.css
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+```
+
+```{r data loading, echo=FALSE, include= FALSE}
+# # libraries required
+library(shiny)
+library(shinydashboard)
+library(httr)
+library(rvest)
+library(XML)
+library(doBy) # uses MASS which has a eselect conflict with dplyr - need for sequences
+library(dplyr) # this masks select from MASS, filter from stats and intersect etc from base
+library(timelineR) # conflict with ggvis on add_axis so added to ggvis currently
+library(ggvis)
+
+library(RSQLite)
+library(lubridate)
+library(stringr)
+library(markdown)
+library(tidyr)
+library(shinyBS)
+library(scales)
+library(ggplot2)
+library(leaflet)
+library(rCharts)
+library(shinythemes)
+library(DT)
+library(readr)
+library(ggmap)
+library(rgdal)
+library(choroplethr)
+library(choroplethrMaps)
+library(taucharts)
+library(daff)
+library(plotly)
+#library(crosstalk) no longer needed as can now use event_data() in plotly
+library(explodingboxplotR)
+library(beeswarm) # just for test
+
+#library(addins)
+
+
+
+positions <- read_csv("data/positions.csv") ##
+playerGame <- readRDS("data/playerGame.rds") # reducing columns would help - though might be offset by calcs needed later
+playerClub <- readRDS("data/playerClub.rds")
+summary <- readRDS("data/summary.rds")
+leaders <- readRDS("data/leaders.rds")
+standings <- readRDS("data/standings.rds")
+allGoalsPlayer <- readRDS("data/allGoalsPlayer.rds")
+goals <- readRDS("data/goals.rds")
+Goals_team_for <- readRDS("data/Goals_team_for.rds")
+Goals_team_ag <- readRDS("data/Goals_team_ag.rds")
+Play <- readRDS("data/Play.rds")
+Place <- readRDS("data/Place.rds")
+Method<- readRDS("data/Method.rds")
+teamGames <- readRDS("data/teamGames.rds")
+managers <- readRDS("data/managers.rds")
+milestones<- read_csv("data/milestones.csv")
+playerGeos <- read_csv("data/playerGeos.csv")
+goalSeqs <- readRDS("data/goalSeqs.rds")
+goalSeqsClub <- readRDS("data/goalSeqsClub.rds")
+
+
+teamCodes <- teamGames %>% 
+  ungroup() %>% 
+  select(TEAMNAME,TEAMID) %>% 
+  unique()
+
+## playerid name and lat/lon
+# pgMini <- playerGame %>%  ## so wil only show those that have made an appearance - but that is prob ok
+#   select(PLAYERID,name,city,COUNTRY) %>% 
+#   unique() %>% 
+#   left_join(playerGeos,by=c("PLAYERID"="playerID")) %>% 
+#   mutate(place=paste0(city," ",COUNTRY))
+
+
+pgMini <- playerGame %>%  ## so wil only show those that have made an appearance - but that is prob ok
+  select(PLAYERID,name,city,COUNTRY) %>% 
+  unique() %>% 
+  
+  left_join(playerGeos,by=c("PLAYERID"="playerID")) %>% 
+  filter(PLAYERID!="OWNGOAL") %>% 
+  mutate(place=ifelse(is.na(city),COUNTRY,paste0(city," ",COUNTRY)))
+
+    
+playerChoice <- pgMini$PLAYERID
+names(playerChoice) <- pgMini$name
+
+teamsChoice <- sort(unique(playerGame$TEAMNAME))
+teamsChoice_2 <- c("All Teams",teamsChoice)
+
+seasonChoice <- sort(unique(playerGame$season), decreasing = TRUE)
+seasonChoice_2 <- c("All Seasons",seasonChoice)
+
+
+countryChoice <- sort(unique(playerGame$COUNTRY))
+countryChoice_2 <- c("All Countries",countryChoice)
+
+currentYear <-max(standings$season)
+currentRound <-max(standings[standings$season==currentYear,]$tmYrGameOrder)
+
+
+yrs <-sort(unique(standings$season), decreasing=T)
+
+currentYear <- yrs[1] #[1] "2014/15"
+lastYear <- yrs[2]
+currentRound <-max(standings[standings$season==currentYear,]$tmYrGameOrder)
+## take account of few games
+if (currentRound<6) {
+  currentValue <- 6
+} else {
+  currentValue <- currentRound
+}
+print("currentValue")
+print(currentValue)
+
+tmYrs <-standings %>%
+  select(season,team) %>%
+  unique(.)
+
+hth<-data.frame(standings %>%
+                  select(team,OppTeam:gameDate,venue,points,res))
+hth$tmYrGameOrder <- NULL
+## set up order for sequences (got to be prob after changing standings added team back in)
+hth <-data.frame(hth %>%
+                   group_by(team,OppTeam) %>%
+                   arrange(gameDate) %>%
+                   mutate(gameOrder=row_number()))
+
+trueGames <- playerGame %>% 
+  filter((START+subOn)>0) %>% 
+  group_by(PLAYERID) %>% 
+  mutate(trueGameOrder=row_number())
+
+# used in sp_birthplace
+allPlayers <- playerGame %>% 
+  select(name,PLAYERID,COUNTRY) %>% 
+  unique()
+
+## removed as  not sure needed and took ages to load
+# standard map data for world
+# mapData <- readOGR(dsn=".",
+#                    layer = "ne_50m_admin_0_countries", 
+#                    encoding = "UTF-8",verbose=FALSE)
+
+
+## used in year on year change
+yrs <- unique(standings$season)
+teams <- unique(standings$team)
+allSeasonTeams <- data.frame(season=rep(yrs, length(teams)),team=rep(teams, length(yrs)))
+
+```
+
+This is aseries of short articles usually related to apps I develop for the [mytinyshinys site](https://mytinyshinys.shinyapps.io/dashboard/) relating to football/soccer. 
+
+Commented out code can be shown or hidden by toggling buttons
+
+
+##  <span class="post">Everton - What's up</span>
+*8th March 2016*
+
+Everton again flattered to deceive at the weekend - losing 3-2 at home to West Ham after taking a two goal lead
+
+In spite of having some highly-talented young players they languish in the bottom half of the table in spite a positive goal difference of 12
+
+But how rare is this? With a bit of data munging and the use of the plotly package the data can be visualized. Hover points for more information
+
+
+```{r GD, echo=TRUE}
+
+# The standings data.frame lists the position of each team after each round of matches
+# but this year's data needs to be recalculated as not all teams have played the same
+# number of games. The goal difference is then extrapolated to a full season
+
+
+df <-standings %>%  
+  group_by(season,team) %>% 
+  filter(tmYrGameOrder==max(tmYrGameOrder)) %>% 
+  select(team,season,final_Pos,tmYrGameOrder,cumPts,cumGD,cumGF) %>% 
+  mutate(avPts=round(cumPts/tmYrGameOrder,2))
+
+pastYears<- df %>% 
+  filter(season!="2015/16")
+
+thisYear <- df %>% 
+  filter(season=="2015/16") %>% 
+  ungroup() %>% 
+  mutate(totGD=round(cumGD*38/tmYrGameOrder),totGF=round(cumGF*38/tmYrGameOrder)) %>% 
+  arrange(desc(avPts),desc(totGD),desc(totGF),team) %>% 
+  mutate(pos=row_number())
+
+# From viewing the data, Everton's record is a bit of an outlier  but certainly no
+# more than Manchester City in 2003/4. Let's use the annotation feature to highlight them
+
+EVE <- list(
+  x = 16,
+  y = 1.36,
+  text = "Everton 2015/16",
+  xref = "x",
+  yref = "y",
+  showarrow = TRUE,
+  arrowhead = 4,
+  ax = 20,
+  ay = 20
+)
+
+MNC <- list(
+  x = 1,
+  y = 1.08,
+  text = "Man City 2003/04",
+  xref = "x",
+  yref = "y",
+  showarrow = TRUE,
+  arrowhead = 4,
+  ax = 20,
+  ay = 20
+)
+
+# We can now plot the chart which combines all completed seasons with the current year (via add_trace)
+# The points are infoactive - with further details relating to team, season etc highlighted when hovered
+
+pastYears %>% 
+  plot_ly(x=cumGD,y=avPts,mode="markers", hoverinfo = "text", name="Past Yrs",
+text = paste(team,"<br>", season,"<br> Pos:",final_Pos,"<br> PPG:",avPts,"<br> GD:",cumGD)) %>%
+  add_trace(data=thisYear,x=totGD,y=avPts,mode="markers", name="2015/16",hoverinfo = "text", 
+            text = paste(team,"<br>", season,"<br> Pos:",pos,"<br> PPG:",avPts,"<br> GD:",totGD)) %>% 
+
+  layout(hovermode = "closest",
+         xaxis=list(title="Goal Difference. 2015/16 extrapolated to 38 game season"),
+         yaxis=list(title="Average points per game "),
+         title="Comparison of Average Points per Game and Goal Diff in Premier League",
+         annotations = list(EVE,MNC)
+         )   %>% 
+ 
+  config(displayModeBar = F,showLink = F)
+
+```
+
+
+###  <span class="blogs">myTinyShiny blogs</span>
+
+
+- [English Premier League](https://mytinyshinys.shinyapps.io/premierBlog)
+- [Other Sports](https://mytinyshinys.shinyapps.io/sportsBlog)
+- [Socio-Economic](https://mytinyshinys.shinyapps.io/socioEconomicsBlog)
+- [Analytics](https://mytinyshinys.shinyapps.io/analyticsBlog)
+
+
+###  <span class="blogs">Associated web sites</span>
+
+
+- [English Premier League](https://mytinyshinys.shinyapps.io/premierLeague)
+- [World Soccer](https://mytinyshinys.shinyapps.io/worldSoccer)
+- [Dashboard](https://mytinyshinys.shinyapps.io/dashboard)
